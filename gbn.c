@@ -12,8 +12,11 @@ uint16_t checksum(uint16_t *buf, int nwords)
 }
 
 ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
-	
-	/* TODO: Your code here. */
+
+	gbnhdr currPacket;
+	memset(&currPacket, 0, sizeof(currPacket));
+
+	ssize_t sockLen = sizeof(currPacket);
 
 	/* Hint: Check the data length field 'len'.
 	 *       If it is > DATALEN, you will have to split the data
@@ -21,14 +24,28 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 	 *       about getting more than N * DATALEN.
 	 */
 
-	return(-1);
+	if(sendto(sockfd,buf,len,flags,(struct sockaddr *)&currPacket,sockLen)!= sizeof(buf)){
+
+		perror(gai_strerror(errno));
+		return (-1);
+	}
+
+	return sockLen;
 }
 
 ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
 
-	/* TODO: Your code here. */
+	gbnhdr currPacket;
+	memset(&currPacket, 0, sizeof(currPacket));
 
-	return(-1);
+	ssize_t sockLen = sizeof(currPacket);
+
+	if(recvfrom(sockfd,buf,len,flags,(struct sockaddr *)&currPacket,(socklen_t *)&sockLen) == -1){
+		perror(gai_strerror(errno));
+		return(-1);
+	}
+
+	return sockLen;
 }
 
 int gbn_close(int sockfd){
