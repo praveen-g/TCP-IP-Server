@@ -1,0 +1,10 @@
+#DS_Store
+.DS_Store
+
+*.idea
+
+#build files
+cmake-build-debug
+
+#object files
+*.o
