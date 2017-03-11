@@ -1,0 +1,3 @@
+/Users/praveen/Desktop/Distr Comp/Lab2/Skeleton Code 2/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/praveen/Desktop/Distr Comp/Lab2/Skeleton Code 2/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/Users/praveen/Desktop/Distr Comp/Lab2/Skeleton Code 2/cmake-build-debug/CMakeFiles/receiver.dir
