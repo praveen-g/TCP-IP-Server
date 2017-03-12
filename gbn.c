@@ -13,34 +13,39 @@ uint16_t checksum(uint16_t *buf, int nwords)
 
 ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 
-	gbnhdr currPacket;
-	memset(&currPacket, 0, sizeof(currPacket));
-
-	ssize_t sockLen = sizeof(currPacket);
-
 	/* Hint: Check the data length field 'len'.
 	 *       If it is > DATALEN, you will have to split the data
 	 *       up into multiple packets - you don't have to worry
 	 *       about getting more than N * DATALEN.
 	 */
 
-	if(sendto(sockfd,buf,len,flags,(struct sockaddr *)&currPacket,sockLen)!= sizeof(buf)){
+	//get destination address
+	struct sockaddr *dest;
+	socklen_t sockLen;
+	getpeername(sockfd, (struct sockaddr*)&dest, &sockLen);
 
+
+	//TODO create gbn packet based on len (if >0 then DATA else message)
+	gbnhdr currPacket;
+	memset(&currPacket, 0, sizeof(currPacket));
+
+
+	if(sendto(sockfd,&currPacket, sizeof(currPacket),flags,dest,(int)sockLen)!= sizeof(currPacket)){
 		perror(gai_strerror(errno));
 		return (-1);
 	}
 
-	return sockLen;
+	return sizeof(currPacket);
 }
 
 ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
 
-	gbnhdr currPacket;
-	memset(&currPacket, 0, sizeof(currPacket));
+	//get destination address
+	struct sockaddr *dest;
+	socklen_t sockLen;
+	getpeername(sockfd, (struct sockaddr*)&dest, &sockLen);
 
-	ssize_t sockLen = sizeof(currPacket);
-
-	if(recvfrom(sockfd,buf,len,flags,(struct sockaddr *)&currPacket,(socklen_t *)&sockLen) == -1){
+	if(recvfrom(sockfd,buf,len,flags,dest,&sockLen) == -1){
 		perror(gai_strerror(errno));
 		return(-1);
 	}
