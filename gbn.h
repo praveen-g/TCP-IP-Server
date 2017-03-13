@@ -18,7 +18,7 @@
 /*----- Error variables -----*/
 extern int h_errno;
 extern int errno;
-#define SUCCESS 1
+#define SUCCESS 1;
 
 /*----- Protocol parameters -----*/
 #define LOSS_PROB 1e-2    /* loss probability                            */
@@ -44,11 +44,16 @@ typedef struct {
     uint8_t data[DATALEN];    /* pointer to the payload                     */
 } __attribute__((packed)) gbnhdr;
 
+
+/*-----state information-----*/
 typedef struct state_t{
 
-	/* TODO: Your state information could be encoded here. */
-
+	int base; //largest acknowledged frame
+	int maxSeqNum; //largest frame that can be sent
+	int pipeline[2]; // buffer for sliding window
+	int systemState;
 } state_t;
+
 
 enum {
 	CLOSED=0,
@@ -59,7 +64,8 @@ enum {
 	FIN_RCVD
 };
 
-extern state_t s;
+state_t s;
+struct sigaction timeoutAction;
 
 void gbn_init();
 int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen);

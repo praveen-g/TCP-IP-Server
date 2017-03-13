@@ -1,5 +1,44 @@
 #include "gbn.h"
 
+void handleTimeOut(int signal){
+	//TODO handle timeout condition
+}
+
+//initialize system state
+int initialize(){
+
+	/*----- Randomizing the seed. This is used by the rand() function -----*/
+	srand((unsigned)time(0));
+
+	s.systemState=CLOSED;
+	
+	/*-----initialize signal handler-----*/
+	timeoutAction.sa_handler=handleTimeOut;
+
+	//initialize all signals
+	if (sigfillset(&timeoutAction.sa_mask)< 0){
+		perror("sigfillset failed");
+		return(-1);
+	}
+
+	timeoutAction.sa_flags =0;
+
+	if (sigaction(SIGALRM,&(timeoutAction),0)<0){
+		perror("Signal action failed to be assigned");
+		return(-1);
+	}
+
+	return SUCCESS;
+}
+
+void gbn_createPacket(int type, int seqnum, int checksum, const void *buf, gbnhdr *currPacket){
+
+	currPacket->checksum=checksum;
+	currPacket->type=type;
+	currPacket->seqnum=seqnum;
+	strcpy(currPacket->data,buf);
+}
+
 uint16_t checksum(uint16_t *buf, int nwords)
 {
 	uint32_t sum;
@@ -12,6 +51,8 @@ uint16_t checksum(uint16_t *buf, int nwords)
 }
 
 ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
+	
+	/* TODO: Your code here. */
 
 	/* Hint: Check the data length field 'len'.
 	 *       If it is > DATALEN, you will have to split the data
@@ -19,109 +60,72 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 	 *       about getting more than N * DATALEN.
 	 */
 
-	//get destination address
-	struct sockaddr *dest;
-	socklen_t sockLen;
-	getpeername(sockfd, (struct sockaddr*)&dest, &sockLen);
-
-
-	//TODO create gbn packet based on len (if >0 then DATA else message)
-	gbnhdr currPacket;
-	memset(&currPacket, 0, sizeof(currPacket));
-
-
-	if(sendto(sockfd,&currPacket, sizeof(currPacket),flags,dest,(int)sockLen)!= sizeof(currPacket)){
-		perror(gai_strerror(errno));
-		return (-1);
-	}
-
-	return sizeof(currPacket);
+	return(-1);
 }
 
 ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
 
-	//get destination address
-	struct sockaddr *dest;
-	socklen_t sockLen;
-	getpeername(sockfd, (struct sockaddr*)&dest, &sockLen);
-
-	if(recvfrom(sockfd,buf,len,flags,dest,&sockLen) == -1){
-		perror(gai_strerror(errno));
-		return(-1);
-	}
-
-	return sockLen;
+	alarm(TIMEOUT);
+	return (-1);
 }
 
 int gbn_close(int sockfd){
 
-	if(close(sockfd)== -1){
-		perror(gai_strerror(errno));
-		return(-1);
-	}
-	else{
-		return(SUCCESS);
-	}
+    if(close(sockfd)== -1){
+        perror(gai_strerror(errno));
+        return(-1);
+    }
+    else{
+        return SUCCESS;
+    }
+
 }
 
 int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
 
-	if (connect(sockfd, server, socklen) == -1) {
-		perror(gai_strerror(errno));
-		return (-1);
-	}
-	else {
-		return SUCCESS;
-	}
+    if (connect(sockfd, server, socklen) == -1) {
+        perror(gai_strerror(errno));
+        return (-1);
+    }
+    else {
+        return SUCCESS;
+    }
 }
 
 int gbn_listen(int sockfd, int backlog){
 
-	if(listen(sockfd,backlog)== -1){
-		perror(gai_strerror(errno));
-		return(-1);
-	}
-	else{
-		return SUCCESS;
-	}
+	/* TODO: Your code here. */
 
+	return(-1);
 }
 
 int gbn_bind(int sockfd, const struct sockaddr *server, socklen_t socklen){
 
-	if(bind(sockfd, server, socklen) == -1){
-		perror(gai_strerror(errno));
-		return(-1);
-	}
-	else{
-		return SUCCESS;
-	}
-
+    if(bind(sockfd, server, socklen) == -1){
+        perror(gai_strerror(errno));
+        return(-1);
+    }
+    else{
+        return SUCCESS;
+    }
 }	
 
 int gbn_socket(int domain, int type, int protocol){
 
+	//initialize seed and timeout condition
+	initialize();
+
 	int sockfd;
-
-	/*----- Randomizing the seed. This is used by the rand() function -----*/
-	srand((unsigned)time(0));
-
 	sockfd = socket(domain, type, protocol);
-	return sockfd;
+	return sockfd; //sockfd will return -1 if error, hence error is not explicitly checked here
+
 }
 
 int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
 
-	int newfd;
+	/* TODO: Your code here. */
 
-	if ((newfd =accept(sockfd, client, socklen)) == -1){
-		perror(gai_strerror(errno));
-		return(-1);
-	}
-	else{
-		return newfd;
-	}
-
+	return(-1);
 }
 
 ssize_t maybe_sendto(int  s, const void *buf, size_t len, int flags, \
