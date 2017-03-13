@@ -2,6 +2,7 @@
 
 void handleTimeOut(int signal){
 	//TODO handle timeout condition
+    printf("Error happened");
 }
 
 //initialize system state
@@ -31,12 +32,11 @@ int initialize(){
 	return SUCCESS;
 }
 
-void gbn_createPacket(int type, int seqnum, int checksum, const void *buf, gbnhdr *currPacket){
+void gbn_createHeader(int type, int seqnum, int checksum,gbnhdr *currPacket){
 
 	currPacket->checksum=checksum;
 	currPacket->type=type;
 	currPacket->seqnum=seqnum;
-	strcpy(currPacket->data,buf);
 }
 
 uint16_t checksum(uint16_t *buf, int nwords)
@@ -51,8 +51,6 @@ uint16_t checksum(uint16_t *buf, int nwords)
 }
 
 ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
-	
-	/* TODO: Your code here. */
 
 	/* Hint: Check the data length field 'len'.
 	 *       If it is > DATALEN, you will have to split the data
@@ -65,7 +63,6 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 
 ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
 
-	alarm(TIMEOUT);
 	return (-1);
 }
 
@@ -83,20 +80,39 @@ int gbn_close(int sockfd){
 
 int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
 
+    //send syn packet to server
+    gbnhdr synPacket;
+    memset(&synPacket,0, sizeof(synPacket));
+    int seqnum = rand();
+
+    gbn_createHeader(SYN,seqnum,0, &synPacket);
+
+    if(sendto(sockfd,&synPacket, sizeof(synPacket),0,server,socklen) == -1){
+        perror("Couldnt send syn packet");
+        return(-1);
+    }
+
+    //set timer and system state
+    alarm(TIMEOUT); //start timer
+    s.systemState = SYN_SENT;
+
+    //connect to server
     if (connect(sockfd, server, socklen) == -1) {
-        perror(gai_strerror(errno));
+        perror("Error connecting to socket");
         return (-1);
     }
-    else {
-        return SUCCESS;
-    }
+
+    return SUCCESS;
 }
 
 int gbn_listen(int sockfd, int backlog){
 
-	/* TODO: Your code here. */
+    printf("Waiting for packet on socket %d", sockfd);
 
-	return(-1);
+	for(;;){
+        //receive syn packet and return success. if timeout, continue listening, if interrupt, return error
+    }
+    return SUCCESS;
 }
 
 int gbn_bind(int sockfd, const struct sockaddr *server, socklen_t socklen){
@@ -113,7 +129,9 @@ int gbn_bind(int sockfd, const struct sockaddr *server, socklen_t socklen){
 int gbn_socket(int domain, int type, int protocol){
 
 	//initialize seed and timeout condition
-	initialize();
+	if(initialize()== -1){
+        return(-1);
+    }
 
 	int sockfd;
 	sockfd = socket(domain, type, protocol);
