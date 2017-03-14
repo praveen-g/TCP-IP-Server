@@ -1,6 +1,6 @@
 #include "gbn.h"
 
-void handleTimeOut(int signal){
+void handleTimeout(int signal){
 	//TODO handle timeout condition
     printf("Error happened");
 }
@@ -11,10 +11,8 @@ int initialize(){
 	/*----- Randomizing the seed. This is used by the rand() function -----*/
 	srand((unsigned)time(0));
 
-	s.systemState=CLOSED;
-	
 	/*-----initialize signal handler-----*/
-	timeoutAction.sa_handler=handleTimeOut;
+	timeoutAction.sa_handler=handleTimeout;
 
 	//initialize all signals
 	if (sigfillset(&timeoutAction.sa_mask)< 0){
@@ -57,6 +55,9 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 	 *       up into multiple packets - you don't have to worry
 	 *       about getting more than N * DATALEN.
 	 */
+    for(int i=0;i<100;i++){
+
+    }
 
 	return(-1);
 }
@@ -88,13 +89,13 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
     gbn_createHeader(SYN,seqnum,0, &synPacket);
 
     if(sendto(sockfd,&synPacket, sizeof(synPacket),0,server,socklen) == -1){
-        perror("Couldnt send syn packet");
+        perror("Couldn't send syn packet");
         return(-1);
     }
 
-    //set timer and system state
-    alarm(TIMEOUT); //start timer
-    s.systemState = SYN_SENT;
+    alarm(TIMEOUT);
+
+    signal(SIGALRM,handleTimeout);
 
     //connect to server
     if (connect(sockfd, server, socklen) == -1) {
@@ -107,12 +108,21 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
 
 int gbn_listen(int sockfd, int backlog){
 
-    printf("Waiting for packet on socket %d", sockfd);
+    printf("Waiting for packet on socket %d \n", sockfd);
 
-	for(;;){
-        //receive syn packet and return success. if timeout, continue listening, if interrupt, return error
+    struct sockaddr_in remaddr;     /* remote address */
+    socklen_t addrlen = sizeof(remaddr);            /* length of addresses */
+    unsigned char buf[DATALEN];     /* receive buffer */
+
+    //wait to receive syn packet
+    while(1){
+
+        if (((int) recvfrom(sockfd, buf, DATALEN, 0, (struct sockaddr *)&remaddr, &addrlen)) >= 0){
+
+            return SUCCESS;
+        }
+
     }
-    return SUCCESS;
 }
 
 int gbn_bind(int sockfd, const struct sockaddr *server, socklen_t socklen){
@@ -141,9 +151,23 @@ int gbn_socket(int domain, int type, int protocol){
 
 int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
 
-	/* TODO: Your code here. */
+    //send syn ack packet to client
+    gbnhdr synAckPacket;
+    memset(&synAckPacket,0, sizeof(synAckPacket));
+    int seqnum = rand();
 
-	return(-1);
+    gbn_createHeader(SYNACK,seqnum,0, &synAckPacket);
+
+    struct sockaddr_in remaddr;
+    socklen_t addrlen = sizeof(remaddr);
+    unsigned char buf[DATALEN];
+
+    if(sendto(sockfd, &synAckPacket, sizeof(synAckPacket), 0, (const struct sockaddr *) &remaddr, addrlen) == -1){
+        perror("Couldnt send syn ack packet");
+        return(-1);
+    }
+
+    return SUCCESS;
 }
 
 ssize_t maybe_sendto(int  s, const void *buf, size_t len, int flags, \
