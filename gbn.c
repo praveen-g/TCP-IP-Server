@@ -1,41 +1,28 @@
 #include "gbn.h"
 
+state_t s;
+
 void handleTimeout(int signal){
 	//TODO handle timeout condition
-    printf("Error happened");
+    printf("Timeout occured");
 }
 
+
 //initialize system state
-int initialize(){
+int gbn_init(){
 
-	/*----- Randomizing the seed. This is used by the rand() function -----*/
-	srand((unsigned)time(0));
+    //initializing system with state CLOSED
+    s = *(state_t*)malloc(sizeof(s));
+    s.seqnum = (uint8_t)rand();
+    s.system_state =CLOSED;
 
-	/*-----initialize signal handler-----*/
-	timeoutAction.sa_handler=handleTimeout;
-
-	//initialize all signals
-	if (sigfillset(&timeoutAction.sa_mask)< 0){
-		perror("sigfillset failed");
-		return(-1);
-	}
-
-	timeoutAction.sa_flags =0;
-
-	if (sigaction(SIGALRM,&(timeoutAction),0)<0){
-		perror("Signal action failed to be assigned");
-		return(-1);
-	}
+    //set up timeout handler
+    signal(SIGALRM,handleTimeout);
+    siginterrupt(SIGALRM,1);
 
 	return SUCCESS;
 }
 
-void gbn_createHeader(int type, int seqnum, int checksum,gbnhdr *currPacket){
-
-	currPacket->checksum=checksum;
-	currPacket->type=type;
-	currPacket->seqnum=seqnum;
-}
 
 uint16_t checksum(uint16_t *buf, int nwords)
 {
@@ -45,7 +32,28 @@ uint16_t checksum(uint16_t *buf, int nwords)
 		sum += *buf++;
 	sum = (sum >> 16) + (sum & 0xffff);
 	sum += (sum >> 16);
-	return ~sum;
+	return (uint16_t) ~sum;
+}
+
+uint16_t header_checksum(gbnhdr *currPacket){
+
+    int packetlength = sizeof(currPacket->type) + sizeof(currPacket->data) + sizeof(currPacket->seqnum);
+
+    uint16_t  buffer[packetlength];
+    memcpy(buffer,currPacket->data, sizeof(currPacket->data));
+    buffer[sizeof(currPacket->data)+1]=currPacket->seqnum;
+    buffer[sizeof(currPacket->data)+1]=currPacket->type;
+
+    return checksum(buffer,packetlength);
+
+}
+
+void gbn_createHeader(uint16_t type, uint16_t seqnum, gbnhdr *currPacket){
+
+    memset(currPacket->data,'\0',0);
+    currPacket->checksum=header_checksum(currPacket);
+    currPacket->type= type;
+    currPacket->seqnum=seqnum;
 }
 
 ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
@@ -55,17 +63,17 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 	 *       up into multiple packets - you don't have to worry
 	 *       about getting more than N * DATALEN.
 	 */
-    for(int i=0;i<100;i++){
-
-    }
 
 	return(-1);
 }
 
+
 ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
 
-	return (-1);
+
+    return (-1);
 }
+
 
 int gbn_close(int sockfd){
 
@@ -79,51 +87,99 @@ int gbn_close(int sockfd){
 
 }
 
+
 int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
 
-    //send syn packet to server
-    gbnhdr synPacket;
-    memset(&synPacket,0, sizeof(synPacket));
-    int seqnum = rand();
+    //create syn packet
+    gbnhdr *synPacket = malloc(sizeof(*synPacket));
+    gbn_createHeader(SYN,s.seqnum, synPacket);
 
-    gbn_createHeader(SYN,seqnum,0, &synPacket);
+    //create syn ack packet
+    gbnhdr *synAckPacket = malloc(sizeof(*synAckPacket));
 
-    if(sendto(sockfd,&synPacket, sizeof(synPacket),0,server,socklen) == -1){
-        perror("Couldn't send syn packet");
-        return(-1);
-    }
+    //create data ack packet
+    gbnhdr *dataAckPacket = malloc(sizeof(*dataAckPacket));
+    gbn_createHeader(DATAACK,0,dataAckPacket);
 
-    alarm(TIMEOUT);
+    //storage for server address
+    struct sockaddr from;
+    socklen_t fromLen = sizeof(from);
 
-    signal(SIGALRM,handleTimeout);
+    int attempts = 0;
+    s.system_state=SYN_SENT;
 
-    //connect to server
-    if (connect(sockfd, server, socklen) == -1) {
-        perror("Error connecting to socket");
-        return (-1);
-    }
+    while(s.system_state!= ESTABLISHED && s.system_state!=CLOSED){
+        printf("%d",attempts);
+        if(s.system_state==SYN_SENT && attempts<5){
+            //send syn
+            if(sendto(sockfd,&synPacket, sizeof(synPacket),0,server,socklen) == -1){
+                perror("Couldn't send syn packet");
+                s.system_state=CLOSED;
+                break;
+            }
+            //syn sent successfully
+            alarm(TIMEOUT);
+            attempts++;
 
-    return SUCCESS;
-}
+        }
+        else{
+            if(attempts>=5)
+                printf("Connection appears broken");
+            else
+                printf("Some Problem occured");
+            s.system_state=CLOSED;
+            break;
+        }
 
-int gbn_listen(int sockfd, int backlog){
+        //receive acknowledgement
+        if(recvfrom(sockfd,&synAckPacket, sizeof(synAckPacket),0,&from,&fromLen) >0){
+            if(synAckPacket->type == SYNACK && synAckPacket->checksum == header_checksum(synAckPacket)){
+                printf("SYNACK recieved successfully");
+                s.system_state = ESTABLISHED;
+                s.seqnum = synAckPacket->seqnum;
+                dataAckPacket->seqnum = synAckPacket->seqnum;
+                dataAckPacket->checksum = synAckPacket->checksum;
+                //maybe store server address in system state
 
-    printf("Waiting for packet on socket %d \n", sockfd);
-
-    struct sockaddr_in remaddr;     /* remote address */
-    socklen_t addrlen = sizeof(remaddr);            /* length of addresses */
-    unsigned char buf[DATALEN];     /* receive buffer */
-
-    //wait to receive syn packet
-    while(1){
-
-        if (((int) recvfrom(sockfd, buf, DATALEN, 0, (struct sockaddr *)&remaddr, &addrlen)) >= 0){
-
-            return SUCCESS;
+                //sending ack from client to server for three way handshake
+                if(sendto(sockfd,&dataAckPacket, sizeof(dataAckPacket),0,server,socklen) == -1){
+                    perror("Couldn't send data ack packet to server");
+                    s.system_state=CLOSED;
+                    break;
+                }
+            }
+        }else{
+            //if timeout, send syn again
+            if(errno==EINTR){
+                continue;
+            }
+            else{
+                printf("Error in receiving SYN acknowledgement");
+                s.system_state=CLOSED;
+                break;
+            }
         }
 
     }
+
+    free(synPacket);
+    free(synAckPacket);
+    free(dataAckPacket);
+
+    if(s.system_state == ESTABLISHED){
+        printf("Connected successfully");
+        return SUCCESS;
+    }
+
+    return(-1);
 }
+
+
+int gbn_listen(int sockfd, int backlog){
+    //bypassing listen function
+    return SUCCESS;
+}
+
 
 int gbn_bind(int sockfd, const struct sockaddr *server, socklen_t socklen){
 
@@ -136,10 +192,14 @@ int gbn_bind(int sockfd, const struct sockaddr *server, socklen_t socklen){
     }
 }	
 
+
 int gbn_socket(int domain, int type, int protocol){
 
-	//initialize seed and timeout condition
-	if(initialize()== -1){
+    /*----- Randomizing the seed. This is used by the rand() function -----*/
+    srand((unsigned)time(0));
+
+    //initialize timer and system state for each socket
+    if(gbn_init()== -1){
         return(-1);
     }
 
@@ -149,26 +209,12 @@ int gbn_socket(int domain, int type, int protocol){
 
 }
 
+
 int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
 
-    //send syn ack packet to client
-    gbnhdr synAckPacket;
-    memset(&synAckPacket,0, sizeof(synAckPacket));
-    int seqnum = rand();
-
-    gbn_createHeader(SYNACK,seqnum,0, &synAckPacket);
-
-    struct sockaddr_in remaddr;
-    socklen_t addrlen = sizeof(remaddr);
-    unsigned char buf[DATALEN];
-
-    if(sendto(sockfd, &synAckPacket, sizeof(synAckPacket), 0, (const struct sockaddr *) &remaddr, addrlen) == -1){
-        perror("Couldnt send syn ack packet");
-        return(-1);
-    }
-
-    return SUCCESS;
+    return (-1);
 }
+
 
 ssize_t maybe_sendto(int  s, const void *buf, size_t len, int flags, \
                      const struct sockaddr *to, socklen_t tolen){

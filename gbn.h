@@ -48,10 +48,9 @@ typedef struct {
 /*-----state information-----*/
 typedef struct state_t{
 
-	int base; //largest acknowledged frame
-	int maxSeqNum; //largest frame that can be sent
-	int pipeline[2]; // buffer for sliding window
-	int systemState;
+	int system_state;
+	uint16_t seqnum;
+
 } state_t;
 
 
@@ -64,10 +63,10 @@ enum {
 	FIN_RCVD
 };
 
-state_t s;
+extern state_t s;
 struct sigaction timeoutAction;
 
-void gbn_init();
+int gbn_init();
 int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen);
 int gbn_listen(int sockfd, int backlog);
 int gbn_bind(int sockfd, const struct sockaddr *server, socklen_t socklen);
