@@ -37,23 +37,20 @@ uint16_t checksum(uint16_t *buf, int nwords)
 
 uint16_t header_checksum(gbnhdr *currPacket){
 
-    int packetlength = sizeof(currPacket->type) + sizeof(currPacket->data) + sizeof(currPacket->seqnum);
+    uint16_t  buffer[2];
+    buffer[0]=(uint16_t)currPacket->seqnum;
+    buffer[1]=(uint16_t)currPacket->type;
 
-    uint16_t  buffer[packetlength];
-    buffer[0]=currPacket->seqnum;
-    buffer[1]=currPacket->type;
-    memcpy(buffer+2,currPacket->data, sizeof(currPacket->data));
-
-    return checksum(buffer,packetlength/ sizeof(uint16_t));
+    return checksum(buffer,2);
 
 }
 
-void gbn_createHeader(uint16_t type, uint16_t seqnum, gbnhdr *currPacket){
+void gbn_createHeader(uint8_t type, uint8_t seqnum, gbnhdr *currPacket){
 
     memset(currPacket->data,'\0',0);
-    currPacket->checksum=header_checksum(currPacket);
     currPacket->type= type;
     currPacket->seqnum=seqnum;
+    currPacket->checksum=header_checksum(currPacket);
 }
 
 ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
@@ -101,7 +98,6 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
 
     //create data ack packet
     gbnhdr *dataAckPacket = malloc(sizeof(*dataAckPacket));
-    gbn_createHeader(DATAACK,0,dataAckPacket);
 
 
     //storage for server address
@@ -112,13 +108,13 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
     s.system_state=SYN_SENT;
 
     while(s.system_state!= ESTABLISHED && s.system_state!=CLOSED){
-        printf("%d",attempts);
+
         if(s.system_state==SYN_SENT && attempts<5){
             //send syn
-            if(sendto(sockfd,&synPacket, sizeof(synPacket),0,server,socklen) == -1){
+            if(sendto(sockfd,synPacket, sizeof(*synPacket),0,server,socklen) == -1){
                 perror("Couldn't send syn packet");
                 s.system_state=CLOSED;
-                break;
+                return (-1);
             }
             //syn sent successfully
             alarm(TIMEOUT);
@@ -131,40 +127,36 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
             else
                 printf("Some Problem occurred");
             s.system_state=CLOSED;
-            break;
+            return (-1);
         }
 
         //receive acknowledgement
-        if(recvfrom(sockfd,&synAckPacket, sizeof(synAckPacket),0,&from,&fromLen) == -1){
-            //if timeout, send syn again
-            if(errno==EINTR){
-                continue;
-            }
-            else{
-                printf("Error in receiving SYN acknowledgement");
-                s.system_state=CLOSED;
-                break;
-            }
-
-        }else{
+        if(recvfrom(sockfd,synAckPacket, sizeof(*synAckPacket),0,&from,&fromLen) >= 0){
             if(synAckPacket->type == SYNACK && synAckPacket->checksum == header_checksum(synAckPacket)){
-                printf("SYNACK received successfully");
-                s.system_state = ESTABLISHED;
+                printf("SYNACK received successfully\n");
                 s.seqnum = synAckPacket->seqnum;
-                dataAckPacket->seqnum = synAckPacket->seqnum;
-                dataAckPacket->checksum = synAckPacket->checksum;
+                gbn_createHeader(DATAACK,synAckPacket->seqnum,dataAckPacket);
                 //maybe store server address in system state
 
                 //sending ack from client to server for three way handshake
-                if(sendto(sockfd,&dataAckPacket, sizeof(dataAckPacket),0,server,socklen) == -1){
+                if(sendto(sockfd,dataAckPacket, sizeof(*dataAckPacket),0,server,socklen) == -1){
                     perror("Couldn't send data ack packet to server");
                     s.system_state=CLOSED;
-                    break;
+                    return (-1);
+                }else{
+                    s.system_state = ESTABLISHED;
                 }
             }
-        }
 
-    }
+        }else{
+            //if timeout, try again
+            if(errno!=EINTR){
+                printf("Error in receiving SYN acknowledgement");
+                s.system_state=CLOSED;
+                return (-1);
+            }
+        }
+    }//end of while
 
     free(synPacket);
     free(synAckPacket);
@@ -215,13 +207,13 @@ int gbn_socket(int domain, int type, int protocol){
 
 int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
 
-    printf("in accept");
-    s.system_state = CLOSED; // making sure system sate is closed before handshake starts
+    s.system_state = CLOSED; // start state
 
     /*create packets for handshake*/
 
     //create syn packet
     gbnhdr *synPacket = malloc(sizeof(*synPacket));
+    memset(synPacket->data,'\0', sizeof(synPacket->data));
 
     //create syn ack packet
     gbnhdr *synAckPacket = malloc(sizeof(*synAckPacket));
@@ -236,16 +228,19 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
     while(s.system_state!=ESTABLISHED){
         if(s.system_state == CLOSED){
             //wait for syn
-            if(recvfrom(sockfd,synPacket, sizeof(synPacket),0,client,socklen)== -1){
+            if(recvfrom(sockfd,synPacket, sizeof(*synPacket),0,client,socklen)>= 0){
+
+                if(synPacket->type == SYN && synPacket->checksum == header_checksum(synPacket)) {
+                    printf("SYN recieved successfully");
+                    s.system_state = SYN_RCVD;
+                    s.seqnum = synPacket->seqnum + (uint8_t) 1;
+                }
+
+            }else{
+
                 printf("Error in receiving SYN");
                 s.system_state=CLOSED;
                 break;
-            }else{
-                if(synPacket->type == SYN ) {
-                    printf("SYN recieved successfully");
-                    s.system_state = SYN_RCVD;
-                    s.seqnum = synPacket->seqnum + (uint16_t) 1;
-                }
             }
         } else if(s.system_state == SYN_RCVD){
 
@@ -255,33 +250,35 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
 
             if(attempts<5){
                 //send syn ack
-                if(sendto(sockfd,&synAckPacket, sizeof(synAckPacket),0,client,*socklen) == -1){
+                if(sendto(sockfd,synAckPacket, sizeof(*synAckPacket),0,client,*socklen) == -1){
                     perror("Couldn't send syn packet");
                     s.system_state=CLOSED;
-                    break;
+                    return (-1);
                 }
             }else{
                 printf("Connection seems broken");
                 s.system_state=CLOSED;
-                break;
+                return (-1);
             }
             //syn ack successfully sent
             attempts++;
             alarm(TIMEOUT);
 
             //receive data ack packet form client
-            if(recvfrom(sockfd,&dataAckPacket, sizeof(dataAckPacket),0,client,socklen) == -1){
-                if(errno==EINTR)
-                    continue;
-                printf("Error receiving data ack from client");
-                s.system_state=CLOSED;
-                break;
-            }else{
+            if(recvfrom(sockfd,dataAckPacket, sizeof(*dataAckPacket),0,client,socklen) >= 0){
+
                 if(dataAckPacket->type == DATAACK && dataAckPacket->checksum == header_checksum(dataAckPacket)) {
-                    printf("DATA ACK recieved successfully");
+                    printf("DATA ACK recieved successfully\n");
                     s.system_state = ESTABLISHED;
                     //maybe store the address
                     break;
+                }
+            }else{
+                //if timeout try again
+                if(errno!=EINTR){
+                    printf("Error receiving data ack from client\n");
+                    s.system_state=CLOSED;
+                    return (-1);
                 }
             }
         }//end of elseif
@@ -292,7 +289,7 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
     free(dataAckPacket);
 
     if(s.system_state == ESTABLISHED){
-        printf("Server has accepted the conenction successfully");
+        printf("Server has accepted the conenction successfully\n");
         return SUCCESS;
     }
 

@@ -38,8 +38,8 @@ extern int errno;
 
 /*----- Go-Back-n packet format -----*/
 typedef struct {
-	uint16_t  type;            /* packet type (e.g. SYN, DATA, ACK, FIN)     */
-	uint16_t  seqnum;          /* sequence number of the packet              */
+	uint8_t  type;            /* packet type (e.g. SYN, DATA, ACK, FIN)     */
+	uint8_t  seqnum;          /* sequence number of the packet              */
     uint16_t checksum;        /* header and payload checksum                */
     uint8_t data[DATALEN];    /* pointer to the payload                     */
 } __attribute__((packed)) gbnhdr;
@@ -49,7 +49,7 @@ typedef struct {
 typedef struct state_t{
 
 	int system_state;
-	uint16_t seqnum;
+	uint8_t seqnum;
 
 } state_t;
 
