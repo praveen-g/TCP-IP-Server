@@ -61,7 +61,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
     //initialize data acknowledgement packet
     gbnhdr *dataAckPacket = malloc(sizeof(*dataAckPacket));
 
-    //storage for server address
+    //storage for remote address
     struct sockaddr from;
     socklen_t fromLen = sizeof(from);
 
@@ -96,7 +96,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
                         //Sending Data
                         if(attempts<5){
                             if(maybe_sendto(sockfd,dataPacket, sizeof(*dataPacket),0, &s.server, serverLen)==-1){
-                                printf("Couldn't send data: %d \n", errno);
+                                printf("Error in sending data. %d \n", errno);
                                 s.system_state = CLOSED;
                                 break;
                             }
@@ -123,7 +123,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 
                             s.seqnum = dataAckPacket->seqnum;
 
-                            //get acknowledged packets
+                            //check for duplicate acknowledgements
                             int diff = ((int)dataAckPacket->seqnum - (int)s.seqnum);
                             ack_packets = diff>0? sizeof(diff): sizeof(diff+255);
 
@@ -181,8 +181,76 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 
 ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
 
+    // data packet
+    gbnhdr *dataPacket = malloc(sizeof(*dataPacket));
 
-    return (-1);
+    //initialize data acknowledgement packet
+    gbnhdr *dataAckPacket = malloc(sizeof(*dataAckPacket));
+
+    //storage for remote address
+    struct sockaddr from;
+    socklen_t fromLen = sizeof(from);
+
+    socklen_t clientLen = sizeof(s.client);
+
+    int flag=0; //if new data received, break out of while
+
+    while(s.system_state == ESTABLISHED && flag==0){
+
+        if(recvfrom(sockfd,dataPacket, sizeof(*dataPacket),0,&from,&fromLen) >=0){
+
+            if(dataPacket->type==DATA && dataPacket->checksum == header_checksum(dataPacket)){
+
+                //create acknowledgment based on sequence number received
+                if(dataPacket->seqnum == s.seqnum){
+                    //correct sequence number
+
+                    //update sequence number
+                    s.seqnum = dataPacket->seqnum + (uint8_t)1;
+
+                    //store it in buffer
+                    memcpy(buf, dataPacket->data+2, sizeof(dataPacket->data)-2);
+
+                    //create acknowledgement
+                    gbn_createHeader(DATAACK,s.seqnum,dataAckPacket);
+
+                    flag=1;//used to break out of while
+
+                }else{
+                    //incorrect sequence number. Create duplicate acknowledgement
+                    gbn_createHeader(DATAACK,s.seqnum,dataAckPacket);
+                }
+
+                //send acknowledgment
+                if(maybe_sendto(sockfd,dataPacket, sizeof(*dataPacket),0, &s.client, clientLen)==-1){
+                    printf("Error in sending data acknowledgment. %d \n", errno);
+                    s.system_state = CLOSED;
+                    break;
+                }
+            }else if(dataPacket->type == FIN && dataPacket->checksum==header_checksum(dataPacket)){
+
+                s.seqnum = dataPacket->seqnum + (uint8_t)1;
+                s.system_state = FIN_RCVD;
+                break;
+            }
+
+        }else{
+            if(errno!=EINTR){
+                s.system_state=CLOSED;
+                return(-1);
+            }
+        }
+    }//end of while
+
+    free(dataPacket);
+    free(dataAckPacket);
+
+    switch (s.system_state){
+        case ESTABLISHED: return sizeof(buf);
+        case  CLOSED: return 0;
+        default: return(-1);
+    }
+
 }
 
 
