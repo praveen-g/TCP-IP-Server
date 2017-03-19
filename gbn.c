@@ -3,7 +3,6 @@
 state_t s;
 
 void handleTimeout(int signal){
-	//TODO handle timeout condition
     printf("Timeout occured");
 }
 
@@ -14,6 +13,7 @@ int gbn_init(){
     //initializing system with state CLOSED
     s = *(state_t*)malloc(sizeof(s));
     s.seqnum = (uint8_t)rand();
+    s.window=1;
     s.system_state =CLOSED;
 
     //set up timeout handler
@@ -55,13 +55,127 @@ void gbn_createHeader(uint8_t type, uint8_t seqnum, gbnhdr *currPacket){
 
 ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 
-	/* Hint: Check the data length field 'len'.
-	 *       If it is > DATALEN, you will have to split the data
-	 *       up into multiple packets - you don't have to worry
-	 *       about getting more than N * DATALEN.
-	 */
+    // data packet
+    gbnhdr *dataPacket = malloc(sizeof(*dataPacket));
 
-	return(-1);
+    //initialize data acknowledgement packet
+    gbnhdr *dataAckPacket = malloc(sizeof(*dataAckPacket));
+
+    //storage for server address
+    struct sockaddr from;
+    socklen_t fromLen = sizeof(from);
+
+    socklen_t serverLen = sizeof(s.server);
+
+    int attempts=0;
+
+    for(int i=0;i<len;){
+        int unack_packets=0;
+
+        switch(s.system_state){
+            case CLOSED: i=len;
+                         gbn_close(sockfd);
+                         break;
+
+            case ESTABLISHED:
+
+                //send complete window size in one attempt
+                for(int j=0;j<s.window;j++){
+
+                    if((len-i-(DATALEN-2)*j) >0){
+                        //calulate length to data to put in packet- either DATALEN-2 or remaining data
+                        size_t data_length = min(len-i-(DATALEN-2)*j, DATALEN-2);
+
+                        //initializing header of data packet
+                        gbn_createHeader(DATA,s.seqnum + (uint8_t)j,dataPacket);
+
+                        memcpy(dataPacket->data, (uint16_t *) &data_length, 2);
+                        memcpy(dataPacket->data + 2, buf + i + (DATALEN-2)*j, data_length);
+                        dataPacket->checksum = header_checksum(dataPacket);// TODO checksum should include data
+
+                        //Sending Data
+                        if(attempts<5){
+                            if(maybe_sendto(sockfd,dataPacket, sizeof(*dataPacket),0, &s.server, serverLen)==-1){
+                                printf("Couldn't send data: %d \n", errno);
+                                s.system_state = CLOSED;
+                                break;
+                            }
+                        }else{
+                            printf("Maximum attempts reached. Connection appears closed");
+                            s.system_state=CLOSED;
+                            return(-1);
+                        }
+
+                        //Data sent
+                        unack_packets++;
+                    }
+                }//end of loop for sliding window
+
+                attempts++;
+
+                //get acknowledgements
+                int ack_packets=0;
+                for(int j=0; j<unack_packets;j+=ack_packets){
+
+                    if(recvfrom(sockfd,dataAckPacket, sizeof(*dataAckPacket),0,&from,&fromLen) >= 0) {
+
+                        if (dataAckPacket->type == DATAACK && dataAckPacket->checksum == header_checksum(dataAckPacket)) {
+
+                            s.seqnum = dataAckPacket->seqnum;
+
+                            //get acknowledged packets
+                            int diff = ((int)dataAckPacket->seqnum - (int)s.seqnum);
+                            ack_packets = diff>0? sizeof(diff): sizeof(diff+255);
+
+                            i+= min(len-i-(DATALEN-2)*j, DATALEN-2); // update looping variable for data sent
+
+                            if (s.window < MAXWINDOWSIZE) {
+                                s.window++;
+                                printf("Entering Fast Mode\n");
+                            }
+                            if (ack_packets == unack_packets) {
+                                alarm(0);//remove alarm
+                            } else {
+                                //reset alarm
+                                alarm(TIMEOUT);
+                            }
+
+                        } else if(dataAckPacket->type == FIN && dataAckPacket->checksum == header_checksum(dataAckPacket)){
+
+                            attempts=0; //reset attempts to the beginning
+                            s.system_state = FIN_RCVD;
+                            alarm(0); // remove alarm
+                            break;
+                        }
+
+                    }else{
+
+                        if (errno == EINTR) {
+                            //timeout received, hence reduce window size by half
+                            if (s.window > 1) {
+                                s.window/=2;
+                                printf("Entering Slow Mode");
+                                break;
+                            }
+                        } else {
+                            s.system_state = CLOSED;
+                            return(-1);
+                        }
+                    }
+                }
+                break;
+            default: break;
+
+        }//end of switch
+    }//end of for
+
+    free(dataPacket);
+    free(dataAckPacket);
+
+    if(s.system_state == ESTABLISHED){
+        return len;
+    }
+    return -1;
 }
 
 
@@ -99,8 +213,6 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
     //create data ack packet
     gbnhdr *dataAckPacket = malloc(sizeof(*dataAckPacket));
 
-
-    //storage for server address
     struct sockaddr from;
     socklen_t fromLen = sizeof(from);
 
@@ -136,7 +248,7 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
                 printf("SYNACK received successfully\n");
                 s.seqnum = synAckPacket->seqnum;
                 gbn_createHeader(DATAACK,synAckPacket->seqnum,dataAckPacket);
-                //maybe store server address in system state
+                s.server = *server;
 
                 //sending ack from client to server for three way handshake
                 if(sendto(sockfd,dataAckPacket, sizeof(*dataAckPacket),0,server,socklen) == -1){
@@ -213,7 +325,6 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
 
     //create syn packet
     gbnhdr *synPacket = malloc(sizeof(*synPacket));
-    memset(synPacket->data,'\0', sizeof(synPacket->data));
 
     //create syn ack packet
     gbnhdr *synAckPacket = malloc(sizeof(*synAckPacket));
@@ -231,14 +342,14 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
             if(recvfrom(sockfd,synPacket, sizeof(*synPacket),0,client,socklen)>= 0){
 
                 if(synPacket->type == SYN && synPacket->checksum == header_checksum(synPacket)) {
-                    printf("SYN recieved successfully");
+                    printf("SYN recieved successfully\n");
                     s.system_state = SYN_RCVD;
                     s.seqnum = synPacket->seqnum + (uint8_t) 1;
                 }
 
             }else{
 
-                printf("Error in receiving SYN");
+                printf("Error in receiving SYN\n");
                 s.system_state=CLOSED;
                 break;
             }
@@ -251,12 +362,12 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
             if(attempts<5){
                 //send syn ack
                 if(sendto(sockfd,synAckPacket, sizeof(*synAckPacket),0,client,*socklen) == -1){
-                    perror("Couldn't send syn packet");
+                    perror("Couldn't send syn packet\n");
                     s.system_state=CLOSED;
                     return (-1);
                 }
             }else{
-                printf("Connection seems broken");
+                printf("Connection seems broken\n");
                 s.system_state=CLOSED;
                 return (-1);
             }
@@ -270,7 +381,7 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
                 if(dataAckPacket->type == DATAACK && dataAckPacket->checksum == header_checksum(dataAckPacket)) {
                     printf("DATA ACK recieved successfully\n");
                     s.system_state = ESTABLISHED;
-                    //maybe store the address
+                    s.client= *client;
                     break;
                 }
             }else{

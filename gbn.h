@@ -36,6 +36,8 @@ extern int errno;
 #define FINACK   5        /* Acknowledgement of the FIN packet           */
 #define RST      6        /* Reset packet used to reject new connections */
 
+#define min(a,b) ((a) < (b) ? a : b) /*used to calculate minimum */
+#define MAXWINDOWSIZE 2
 /*----- Go-Back-n packet format -----*/
 typedef struct {
 	uint8_t  type;            /* packet type (e.g. SYN, DATA, ACK, FIN)     */
@@ -49,6 +51,9 @@ typedef struct {
 typedef struct state_t{
 
 	int system_state;
+    int window;
+    struct sockaddr client;
+    struct sockaddr server;
 	uint8_t seqnum;
 
 } state_t;
