@@ -117,19 +117,21 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
                 attempts++;
 
                 //get acknowledgements
-                int ack_packets=0;
+                size_t ack_packets=0;
                 for(int j=0; j<unack_packets;j+=ack_packets){
 
                     if(recvfrom(sockfd,dataAckPacket, sizeof(*dataAckPacket),0,&from,&fromLen) >= 0) {
 
                         if (dataAckPacket->type == DATAACK && dataAckPacket->checksum == header_checksum(dataAckPacket)) {
 
-                            s.seqnum = dataAckPacket->seqnum;
-
                             printf("Data Ack packet with seqnum %d and checksum %d recevied\n", dataAckPacket->seqnum, dataAckPacket->checksum);
+
                             //check for duplicate acknowledgements
                             int diff = ((int)dataAckPacket->seqnum - (int)s.seqnum);
-                            ack_packets = diff>0? sizeof(diff): sizeof(diff+255);
+                            ack_packets = diff>=0? (size_t)(diff): (size_t)(diff+256);
+
+                            unack_packets-=ack_packets;
+                            s.seqnum = dataAckPacket->seqnum;
 
                             i+= min(len-i-(DATALEN-2)*j, DATALEN-2); // update looping variable for data sent
 
@@ -137,7 +139,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
                                 s.window++;
                                 printf("Entering Fast Mode\n");
                             }
-                            if (ack_packets == unack_packets) {
+                            if (unack_packets == 0) {
                                 alarm(0);//remove alarm
                             } else {
                                 //reset alarm
