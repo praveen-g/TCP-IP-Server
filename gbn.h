@@ -52,8 +52,8 @@ typedef struct state_t{
 
 	int system_state;
     int window;
-    struct sockaddr client;
     struct sockaddr server;
+    struct sockaddr client;
 	uint8_t seqnum;
 
 } state_t;

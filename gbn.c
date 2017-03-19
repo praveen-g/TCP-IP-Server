@@ -3,7 +3,7 @@
 state_t s;
 
 void handleTimeout(int signal){
-    printf("Timeout occured");
+    printf("Timeout occured\n");
 }
 
 
@@ -55,6 +55,8 @@ void gbn_createHeader(uint8_t type, uint8_t seqnum, gbnhdr *currPacket){
 
 ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 
+    printf("Sending data \n");
+
     // data packet
     gbnhdr *dataPacket = malloc(sizeof(*dataPacket));
 
@@ -101,11 +103,12 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
                                 break;
                             }
                         }else{
-                            printf("Maximum attempts reached. Connection appears closed");
+                            printf("Maximum attempts reached. Connection appears closed\n");
                             s.system_state=CLOSED;
                             return(-1);
                         }
 
+                        printf("Data packet with seqnum %d and checksum %d sent\n", dataPacket->seqnum, dataPacket->checksum);
                         //Data sent
                         unack_packets++;
                     }
@@ -123,6 +126,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 
                             s.seqnum = dataAckPacket->seqnum;
 
+                            printf("Data Ack packet with seqnum %d and checksum %d recevied\n", dataAckPacket->seqnum, dataAckPacket->checksum);
                             //check for duplicate acknowledgements
                             int diff = ((int)dataAckPacket->seqnum - (int)s.seqnum);
                             ack_packets = diff>0? sizeof(diff): sizeof(diff+255);
@@ -191,19 +195,22 @@ ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
     struct sockaddr from;
     socklen_t fromLen = sizeof(from);
 
-    socklen_t clientLen = sizeof(s.client);
+    socklen_t remoteLen = sizeof(s.client);
 
     int flag=0; //if new data received, break out of while
 
     while(s.system_state == ESTABLISHED && flag==0){
 
-        if(recvfrom(sockfd,dataPacket, sizeof(*dataPacket),0,&from,&fromLen) >=0){
+        if(recvfrom(sockfd,dataPacket, sizeof(*dataPacket),0,&from,&fromLen) >= 0){
+
+            printf("Packet with seqnum %d and checksum %d received\n", dataPacket->seqnum, dataPacket->checksum);
 
             if(dataPacket->type==DATA && dataPacket->checksum == header_checksum(dataPacket)){
 
                 //create acknowledgment based on sequence number received
                 if(dataPacket->seqnum == s.seqnum){
                     //correct sequence number
+                    printf("Correct data \n");
 
                     //update sequence number
                     s.seqnum = dataPacket->seqnum + (uint8_t)1;
@@ -217,15 +224,20 @@ ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
                     flag=1;//used to break out of while
 
                 }else{
+                    //correct sequence number
+                    printf("Incorrect data \n");
+
                     //incorrect sequence number. Create duplicate acknowledgement
                     gbn_createHeader(DATAACK,s.seqnum,dataAckPacket);
                 }
 
                 //send acknowledgment
-                if(maybe_sendto(sockfd,dataPacket, sizeof(*dataPacket),0, &s.client, clientLen)==-1){
+                if(maybe_sendto(sockfd,dataAckPacket, sizeof(*dataAckPacket),0, &s.client, remoteLen)==-1){
                     printf("Error in sending data acknowledgment. %d \n", errno);
                     s.system_state = CLOSED;
                     break;
+                }else{
+                    printf("Data Ack  with sequence number %d and checksum %d successfully sent", dataAckPacket->seqnum, dataAckPacket->checksum);
                 }
             }else if(dataPacket->type == FIN && dataPacket->checksum==header_checksum(dataPacket)){
 
@@ -307,6 +319,7 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
             else
                 printf("Some Problem occurred");
             s.system_state=CLOSED;
+            alarm(0);
             return (-1);
         }
 
@@ -325,6 +338,7 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
                     return (-1);
                 }else{
                     s.system_state = ESTABLISHED;
+                    alarm(0); // reset the alarm
                 }
             }
 
@@ -449,7 +463,7 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
                 if(dataAckPacket->type == DATAACK && dataAckPacket->checksum == header_checksum(dataAckPacket)) {
                     printf("DATA ACK recieved successfully\n");
                     s.system_state = ESTABLISHED;
-                    s.client= *client;
+                    s.client = *client;
                     break;
                 }
             }else{
@@ -468,8 +482,9 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
     free(dataAckPacket);
 
     if(s.system_state == ESTABLISHED){
-        printf("Server has accepted the conenction successfully\n");
-        return SUCCESS;
+        printf("Server has accepted the connection successfully\n");
+        alarm(0); //reset alarm
+        return sockfd;
     }
 
     return (-1);
