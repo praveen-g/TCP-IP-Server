@@ -37,17 +37,18 @@ uint16_t checksum(uint16_t *buf, int nwords)
 
 uint16_t header_checksum(gbnhdr *currPacket){
 
-    uint16_t  buffer[2];
+    int bufLen = sizeof(currPacket->type) + sizeof(currPacket->seqnum) + sizeof(currPacket->data);
+    uint16_t buffer[bufLen];
     buffer[0]=(uint16_t)currPacket->seqnum;
     buffer[1]=(uint16_t)currPacket->type;
-
-    return checksum(buffer,2);
+    memcpy(buffer+2,currPacket->data, sizeof(currPacket->data));
+    return checksum(buffer, (bufLen / sizeof(uint16_t)));
 
 }
 
 void gbn_createHeader(uint8_t type, uint8_t seqnum, gbnhdr *currPacket){
 
-    memset(currPacket->data,'\0',0);
+    memset(currPacket->data,'\0', DATALEN);
     currPacket->type= type;
     currPacket->seqnum=seqnum;
     currPacket->checksum=header_checksum(currPacket);
@@ -75,8 +76,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
         int unack_packets=0;
 
         switch(s.system_state){
-            case CLOSED: i=len;
-                         gbn_close(sockfd);
+            case CLOSED:gbn_close(sockfd);
                          break;
 
             case ESTABLISHED:
@@ -93,7 +93,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 
                         memcpy(dataPacket->data, (uint16_t *) &data_length, 2);
                         memcpy(dataPacket->data + 2, buf + i + (DATALEN-2)*j, data_length);
-                        dataPacket->checksum = header_checksum(dataPacket);// TODO checksum should include data
+                        dataPacket->checksum = header_checksum(dataPacket);
 
                         //Sending Data
                         if(attempts<5){
@@ -116,7 +116,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 
                 attempts++;
 
-                //get acknowledgements
+                //get acknowledgements and handle all possible messages from server
                 size_t ack_packets=0;
                 for(j=0; j<unack_packets;j+=ack_packets){
 
@@ -583,7 +583,7 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
             if(recvfrom(sockfd,dataAckPacket, sizeof(*dataAckPacket),0,client,socklen) >= 0){
 
                 if(dataAckPacket->type == DATAACK && dataAckPacket->checksum == header_checksum(dataAckPacket)) {
-                    printf("DATA ACK recieved successfully\n");
+                    printf("DATA ACK received successfully\n");
                     s.system_state = ESTABLISHED;
                     s.remote_address = *client;
                     break;

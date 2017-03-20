@@ -63,7 +63,7 @@ enum {
 	SYN_SENT,
 	SYN_RCVD,
 	ESTABLISHED,
-	FIN_SENT, /*corresponds to state when one set of FIN and FINACK is complete*/
+	FIN_SENT, /*corresponds to state when FIN and FINACK is complete for one side*/
 	FIN_RCVD
 };
 
