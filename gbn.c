@@ -298,7 +298,7 @@ int gbn_close(int sockfd){
 
             case FIN_RCVD: //send fin acknowledge for fin received
                             gbn_createHeader(FINACK,s.seqnum,finAckPacket1);
-                            if(sendto(sockfd, finAckPacket1, sizeof(*finAckPacket1), 0, &s.remote_address, socklen) >=0) {
+                            if(maybe_sendto(sockfd, finAckPacket1, sizeof(*finAckPacket1), 0, &s.remote_address, socklen) >=0) {
 
                                 printf("Fin acknowledgment1 sent\n");
                                 alarm(0);//reset alarm
@@ -322,7 +322,7 @@ int gbn_close(int sockfd){
 
                             if(attempts<5){
 
-                                if(sendto(sockfd, finPacket2, sizeof(*finPacket2), 0, &s.remote_address, socklen) >=0) {
+                                if(maybe_sendto(sockfd, finPacket2, sizeof(*finPacket2), 0, &s.remote_address, socklen) >=0) {
                                     printf("Fin2 sent\n");
 
                                 } else {
@@ -425,7 +425,7 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
 
         if(s.system_state==SYN_SENT && attempts<5){
             //send syn
-            if(sendto(sockfd,synPacket, sizeof(*synPacket),0,server,socklen) == -1){
+            if(maybe_sendto(sockfd,synPacket, sizeof(*synPacket),0,server,socklen) == -1){
                 perror("Couldn't send syn packet");
                 s.system_state=CLOSED;
                 return (-1);
@@ -454,7 +454,7 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
                 s.remote_address = *server;
 
                 //sending ack from client to server for three way handshake
-                if(sendto(sockfd,dataAckPacket, sizeof(*dataAckPacket),0,server,socklen) == -1){
+                if(maybe_sendto(sockfd,dataAckPacket, sizeof(*dataAckPacket),0,server,socklen) == -1){
                     perror("Couldn't send data ack packet to server\n");
                     s.system_state=CLOSED;
                     return (-1);
@@ -565,7 +565,7 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
 
             if(attempts<5){
                 //send syn ack
-                if(sendto(sockfd,synAckPacket, sizeof(*synAckPacket),0,client,*socklen) == -1){
+                if(maybe_sendto(sockfd,synAckPacket, sizeof(*synAckPacket),0,client,*socklen) == -1){
                     perror("Couldn't send syn packet\n");
                     s.system_state=CLOSED;
                     return (-1);
