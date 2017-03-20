@@ -52,8 +52,7 @@ typedef struct state_t{
 
 	int system_state;
     int window;
-    struct sockaddr server;
-    struct sockaddr client;
+    struct sockaddr remote_address;
 	uint8_t seqnum;
 
 } state_t;
@@ -64,7 +63,7 @@ enum {
 	SYN_SENT,
 	SYN_RCVD,
 	ESTABLISHED,
-	FIN_SENT,
+	FIN_SENT, /*corresponds to state when one set of FIN and FINACK is complete*/
 	FIN_RCVD
 };
 
