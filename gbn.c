@@ -202,7 +202,7 @@ ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
     socklen_t remoteLen = sizeof(s.remote_address);
 
     int flag=0; //if new data received, break out of while
-    int returnValue=0;// used to calculate the size of data received
+    size_t returnValue = 0;// used to calculate the size of data received
 
     while(s.system_state == ESTABLISHED && flag==0){
 
@@ -220,15 +220,17 @@ ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
                     //update sequence number
                     s.seqnum = dataPacket->seqnum + (uint8_t)1;
 
+                    //store received data
+                    memcpy(&returnValue, dataPacket->data, 2);
+
                     //store it in buffer
-                    memcpy(buf, dataPacket->data+2, sizeof(dataPacket->data)-2);
-                    returnValue+= sizeof(dataPacket->data);
+                    memcpy(buf, dataPacket->data+2, returnValue);
 
                     //create acknowledgement
                     gbn_createHeader(DATAACK,s.seqnum,dataAckPacket);
 
                     flag=1;//used to break out of while
-                    returnValue+= sizeof(dataPacket->data);
+
 
                 }else{
                     //correct sequence number
